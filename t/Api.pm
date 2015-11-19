@@ -45,7 +45,7 @@ sub ip_in_url {
 
 sub list_pets {
   my ($c, $args, $cb) = @_;
-  $c->$cb($RES, $CODE);
+  $c->render(swagger => $RES, status => $CODE);
 }
 
 sub status {

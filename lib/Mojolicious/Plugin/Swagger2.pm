@@ -80,8 +80,8 @@ The L<Swagger2> object used to generate the routes is available
 as C<swagger> from L<stash|Mojolicious/stash>. Example code:
 
   sub documentation {
-    my ($c, $args, $cb);
-    $c->$cb($c->stash('swagger')->pod->to_string, 200);
+    my $c = shift;
+    $c->render(data => $c->stash('swagger')->pod->to_string);
   }
 
 =head2 swagger_operation_spec
@@ -91,7 +91,7 @@ L<operation object|https://github.com/swagger-api/swagger-spec/blob/master/versi
 is stored in the "swagger_operation_spec" stash variable.
 
   sub list_pets {
-    my ($c, $args, $cb);
+    my $c = shift;
     $c->app->log->info($c->stash("swagger_operation_spec")->{operationId});
     ...
   }
@@ -179,11 +179,9 @@ sub dispatch_to_swagger {
 
   $c->render_swagger(\%err, \%data, $status);
 
-This method is used to render C<%data> from the controller method. The C<%err>
-hash will be empty on success, but can contain input/output validation errors.
-C<$status> is used to set a proper HTTP status code such as 200, 400 or 500.
+Will probably be deprecated in favor of plain L<render()|Mojolicious::Controller/render>.
 
-See also L<Swagger2::Guides::Render> for more information.
+See L<Swagger2::Guides::Render> for more information.
 
 =cut
 
@@ -297,6 +295,29 @@ sub register {
     $ws->to('swagger.plugin' => $self);
   }
 
+  $app->renderer->add_handler(
+    swagger => sub {
+      my ($renderer, $c, $output, $options) = @_;
+      my @res = ($c, @{$c->stash}{qw( swagger swagger_operation_spec status )});
+
+      $res[3] ||= 200;
+
+      if (my @errors = $self->_validate_response(@res)) {
+        warn "[Swagger2] Invalid response: @errors\n" if DEBUG;
+        $c->stash(status => 500);
+        $$output = Mojo::JSON::encode_json({errors => \@errors});
+      }
+      elsif (defined $res[1]) {
+        $$output = ref $res[1] ? Mojo::JSON::encode_json($res[1]) : $res[1];
+      }
+      else {
+        $c->stash(status => 204);
+      }
+
+      return $output, 'json';
+    }
+  );
+
   for my $path (sort { length $a <=> length $b } keys %$paths) {
     $paths->{$path}{'x-mojo-around-action'} ||= $swagger->api_spec->get('/x-mojo-around-action');
     $paths->{$path}{'x-mojo-controller'}    ||= $swagger->api_spec->get('/x-mojo-controller');
@@ -376,7 +397,7 @@ sub _find_controller_and_method {
 sub _generate_request_handler {
   my ($self,       $op_spec) = @_;
   my ($controller, $method)  = $self->_find_controller_and_method($op_spec);
-  my $defaults = {swagger_operation_spec => $op_spec};
+  my $defaults = {handler => 'swagger', swagger_operation_spec => $op_spec};
   my $op_info = {controller => $controller, method => $method, spec => $op_spec};
 
   my $handler = sub {
@@ -391,9 +412,7 @@ sub _generate_request_handler {
         and warn "HTTP method name is not used in method name lookup anymore!";
     }
     unless ($method_ref) {
-      $c->app->log->error(
-        qq(Can't locate object method "$method" via package "$op_info->{class}". (Something is wrong in @{[$self->url]})")
-      );
+      $c->app->log->error(qq(Can't locate object method "$method" via package "$op_info->{class}".));
       return $c->render_swagger(_error(qq(Method "$method" not implemented.)), {}, 501);
     }
 
@@ -403,7 +422,7 @@ sub _generate_request_handler {
     return $c->render_swagger($v, {}, 400) if @{$v->{errors}};
     return $c->delay(
       sub {
-        $c->app->log->debug("Swagger2 calling $op_info->{class}\->$method(\$input, \$cb)");
+        $c->app->log->debug("Swagger2 calling $op_info->{class}\->$method");
         $c->$method_ref($input, shift->begin);
       },
       sub {
