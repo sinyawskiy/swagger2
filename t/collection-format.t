@@ -11,6 +11,7 @@ my $t = Test::Mojo->new;
 $t->get_ok('/collection/format/integer?foo=1|2|3')->status_is(200)->content_is('{"foo":[1,2,3]}');
 $t->get_ok('/collection/format/number?foo=1.42 2 3.14')->status_is(200)->content_is('{"foo":[1.42,2,3.14]}');
 $t->get_ok('/collection/format/string?foo=1,x,3')->status_is(200)->content_is('{"foo":["1","x","3"]}');
+$t->get_ok('/collection/format/string?foo=1,(x,3)')->status_is(200)->content_is('{"foo":["1","(x,3)"]}');
 $t->get_ok('/collection/format/string?foo=x')->status_is(200)->content_is('{"foo":["x"]}');
 $t->get_ok('/collection/format/array?foo=1|2,3|4')->status_is(200)->content_is('{"foo":[["1","2"],["3","4"]]}');
 $t->get_ok('/collection/format/string?foo=')->status_is(200)->content_is('{"foo":[]}');
