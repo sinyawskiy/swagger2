@@ -4,7 +4,7 @@ use Scalar::Util ();
 
 use constant IV_SIZE => eval 'require Config;$Config::Config{ivsize}';
 
-our %COLLECTION_RE = (pipes => qr{\|}, csv => qr{,}, ssv => qr{\s}, tsv => qr{\t});
+our %COLLECTION_RE = (pipes => qr{\|}, csv => qr{[,](?![^(]*\))}, ssv => qr{\s}, tsv => qr{\t});
 
 sub validate_input {
   my $self = shift;
