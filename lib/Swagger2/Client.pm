@@ -127,7 +127,7 @@ sub _validate_request {
     my ($in, $name) = @$p{qw( in name )};
     my $value = exists $args->{$name} ? $args->{$name} : $p->{default};
 
-    if (defined $value or Swagger2::_is_true($p->{required})) {
+    if (defined $value or Swagger2::SchemaValidator::is_true($p->{required})) {
       my $type = $p->{type} || 'object';
 
       if (defined $value) {

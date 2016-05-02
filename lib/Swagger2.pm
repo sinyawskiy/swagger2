@@ -126,12 +126,6 @@ sub validate {
   $self->_validator->validate($self->expand->api_spec->data, $self->_specification->data);
 }
 
-sub _is_true {
-  return $_[0] if ref $_[0] and !Scalar::Util::blessed($_[0]);
-  return 0 if !$_[0] or $_[0] =~ /^(n|false|off)/i;
-  return 1;
-}
-
 1;
 
 =encoding utf8

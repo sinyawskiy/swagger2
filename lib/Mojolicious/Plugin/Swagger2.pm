@@ -10,9 +10,8 @@ use constant IO_LOGGING => $ENV{SWAGGER2_IO_LOGGING};    # EXPERIMENTAL
 
 my $SKIP_OP_RE = qr(By|From|For|In|Of|To|With);
 
-has url             => '';
-has _validator      => sub { Swagger2::SchemaValidator->new; };
-has _json_validator => sub { JSON::Validator->new; };
+has url => '';
+has _validator => sub { Swagger2::SchemaValidator->new; };
 
 sub dispatch_to_swagger {
   return undef unless $_[1]->{op} and $_[1]->{id} and ref $_[1]->{params} eq 'HASH';
@@ -30,7 +29,7 @@ sub dispatch_to_swagger {
   for my $p (@{$defaults->{swagger_operation_spec}{parameters} || []}) {
     my $name  = $p->{name};
     my $value = $data->{params}{$name} // $p->{default};
-    my @e     = $self->_validate_input_value($p, $name => $value);
+    my @e     = $self->_validator->validate_parameter($p, $name => $value);
     $input->{$name} = $value unless @e;
     push @errors, @e;
   }
@@ -269,7 +268,7 @@ sub _validate_input {
     }
 
     if (ref $p->{items} eq 'HASH' and $p->{collectionFormat}) {
-      $value = _coerce_by_collection_format($value, $p);
+      $value = $self->_validator->coerce_by_collection_format($p, $value);
     }
 
     if ($type and defined($value //= $p->{default})) {
@@ -281,46 +280,12 @@ sub _validate_input {
       }
     }
 
-    my @e = $self->_validate_input_value($p, $name => $value);
+    my @e = $self->_validator->validate_parameter($p, $name => $value);
     $input{$name} = $value if !@e and ($exists or exists $p->{default});
     push @errors, @e;
   }
 
   return {errors => \@errors}, \%input;
-}
-
-sub _validate_input_value {
-  my ($self, $p, $name, $value) = @_;
-  my $type = $p->{type} || 'object';
-  my @e;
-
-  return if !defined $value and !Swagger2::_is_true($p->{required});
-
-  my $schema = {
-    properties => {$name => $p->{'x-json-schema'} || $p->{schema} || $p},
-    required => [$p->{required} ? ($name) : ()]
-  };
-  my $in = $p->{in};
-
-  if ($in eq 'body') {
-    warn "[Swagger2] Validate $in $name\n" if DEBUG;
-    if ($p->{'x-json-schema'}) {
-      return $self->_json_validator->validate({$name => $value}, $schema);
-    }
-    else {
-      return $self->_validator->validate_input({$name => $value}, $schema);
-    }
-  }
-  elsif (defined $value) {
-    warn "[Swagger2] Validate $in $name=$value\n" if DEBUG;
-    return $self->_validator->validate_input({$name => $value}, $schema);
-  }
-  else {
-    warn "[Swagger2] Validate $in $name=undef\n" if DEBUG;
-    return $self->_validator->validate_input({$name => $value}, $schema);
-  }
-
-  return;
 }
 
 sub _validate_response {
@@ -348,7 +313,8 @@ sub _validate_response {
 
     if ($blueprint->{'x-json-schema'}) {
       warn "[Swagger2] Validate using x-json-schema\n" if DEBUG;
-      push @errors, $self->_json_validator->validate($data, $blueprint->{'x-json-schema'});
+      push @errors,
+        $self->_validator->json_validator->validate($data, $blueprint->{'x-json-schema'});
     }
     elsif ($blueprint->{schema}) {
       warn "[Swagger2] Validate using schema\n" if DEBUG;
@@ -360,18 +326,6 @@ sub _validate_response {
   }
 
   return @errors;
-}
-
-sub _coerce_by_collection_format {
-  my ($value, $schema) = @_;
-  my $re = $Swagger2::SchemaValidator::COLLECTION_RE{$schema->{collectionFormat}} || '';
-  my $type = $schema->{items}{type} || '';
-  my @data;
-
-  return [ref $value ? @$value : $value] unless $re;
-  defined and push @data, split /$re/ for ref $value ? @$value : $value;
-  return [map { $_ + 0 } @data] if $type eq 'integer' or $type eq 'number';
-  return \@data;
 }
 
 sub _error {

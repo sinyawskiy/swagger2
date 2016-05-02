@@ -2,14 +2,69 @@ package Swagger2::SchemaValidator;
 use Mojo::Base 'JSON::Validator';
 use Scalar::Util ();
 
+use constant DEBUG   => $ENV{SWAGGER2_DEBUG};
 use constant IV_SIZE => eval 'require Config;$Config::Config{ivsize}';
 
 our %COLLECTION_RE = (pipes => qr{\|}, csv => qr{,}, ssv => qr{\s}, tsv => qr{\t});
+
+has json_validator => sub { JSON::Validator->new; };
+
+sub coerce_by_collection_format {
+  my ($self, $schema, $value) = @_;
+  my $re = $COLLECTION_RE{$schema->{collectionFormat}} || '';
+  my $type = $schema->{items}{type} || '';
+  my @data;
+
+  return [ref $value ? @$value : $value] unless $re;
+  defined and push @data, split /$re/ for ref $value ? @$value : $value;
+  return [map { $_ + 0 } @data] if $type eq 'integer' or $type eq 'number';
+  return \@data;
+}
+
+sub is_true {
+  return $_[0] if ref $_[0] and !Scalar::Util::blessed($_[0]);
+  return 0 if !$_[0] or $_[0] =~ /^(n|false|off)/i;
+  return 1;
+}
 
 sub validate_input {
   my $self = shift;
   local $self->{validate_input} = 1;
   $self->validate(@_);
+}
+
+sub validate_parameter {
+  my ($self, $p, $name, $value) = @_;
+  my $type = $p->{type} || 'object';
+  my @e;
+
+  return if !defined $value and !is_true($p->{required});
+
+  my $in     = $p->{in};
+  my $schema = {
+    properties => {$name => $p->{'x-json-schema'} || $p->{schema} || $p},
+    required => [$p->{required} ? ($name) : ()]
+  };
+
+  if ($in eq 'body') {
+    warn "[Swagger2] Validate $in $name\n" if DEBUG;
+    if ($p->{'x-json-schema'}) {
+      return $self->json_validator->validate({$name => $value}, $schema);
+    }
+    else {
+      return $self->validate_input({$name => $value}, $schema);
+    }
+  }
+  elsif (defined $value) {
+    warn "[Swagger2] Validate $in $name=$value\n" if DEBUG;
+    return $self->validate_input({$name => $value}, $schema);
+  }
+  else {
+    warn "[Swagger2] Validate $in $name=undef\n" if DEBUG;
+    return $self->validate_input({$name => $value}, $schema);
+  }
+
+  return;
 }
 
 sub _validate_type_array {
@@ -19,7 +74,7 @@ sub _validate_type_array {
     and ref $schema->{items} eq 'HASH'
     and $schema->{items}{collectionFormat})
   {
-    $self->_coerce_by_collection_format($data, $schema->{items});
+    $_ = $self->coerce_by_collection_format($schema->{items}, $_) for @$data;
   }
 
   return $self->SUPER::_validate_type_array(@_[1, 2, 3]);
@@ -57,17 +112,6 @@ sub _build_formats {
   $formats->{int64}  = IV_SIZE >= 8 ? sub { _is_number($_[0], 'q'); } : sub {1};
 
   return $formats;
-}
-
-sub _coerce_by_collection_format {
-  my ($self, $data, $schema) = @_;
-  my $re = $COLLECTION_RE{$schema->{collectionFormat}} || ',';
-  my $type = $schema->{type} || '';
-
-  for my $i (0 .. @$data - 1) {
-    my @d = split /$re/, $data->[$i];
-    $data->[$i] = ($type eq 'integer' or $type eq 'number') ? [map { $_ + 0 } @d] : \@d;
-  }
 }
 
 sub _is_byte_string { $_[0] =~ /^[A-Za-z0-9\+\/\=]+$/ }
@@ -132,14 +176,47 @@ compiled to use 64 bit integers.
 
 =back
 
+=head2 json_validator
+
+  $obj = $self->json_validator;
+
+Holds a L<JSON::Validator> object.
+
 =head1 METHODS
 
 L<Swagger2::SchemaValidator> inherits all attributes from L<JSON::Validator>.
+
+=head2 coerce_by_collection_format
+
+  $array = $self->coerce_by_collection_format(\%spec, $value);
+
+Will take a C<%spec> containing "collectionFormat" and turn C<$value>
+into an array.
+
+=head2 validate_parameter
+
+  @errors = $self->validate_parameter(\%spec, $name => $value);
+
+Takes a L<parameter|http://swagger.io/specification/#parameterObject>
+specification and validates C<$value> with parameter name C<$name>.
 
 =head2 validate_input
 
 This method will make sure "readOnly" is taken into account, when validating
 data sent to your API.
+
+=head1 FUNCTIONS
+
+=head2 is_true
+
+  $bool = Swagger2::SchemaValidator::is_true($value);
+
+Will check if C<$value> looks like a boolean in any way. The code below is
+close to the internal logic:
+
+  return $_[0] if ref $_[0] and !Scalar::Util::blessed($_[0]);
+  return 0 if !$_[0] or $_[0] =~ /^(n|false|off)/i;
+  return 1;
 
 =head1 COPYRIGHT AND LICENSE
 

@@ -90,7 +90,7 @@ sub _path_request_to_string {
     else {
       push @table,
         [
-        @$p{qw( name in type )}, Swagger2::_is_true($p->{required}) ? 'Yes' : 'No',
+        @$p{qw( name in type )}, Swagger2::SchemaValidator::is_true($p->{required}) ? 'Yes' : 'No',
         $p->{description}
         ];
     }
@@ -351,7 +351,7 @@ sub _status_code_to_string {
 
 sub _stringify {
   my ($k, $obj) = @_;
-  return 'required' if $k eq 'required'   and Swagger2::_is_true($obj->{$k});
+  return 'required' if $k eq 'required'   and Swagger2::SchemaValidator::is_true($obj->{$k});
   return "$k=true"  if blessed $obj->{$k} and $obj->{$k} eq Mojo::JSON->true;
   return "$k=false" if blessed $obj->{$k} and $obj->{$k} eq Mojo::JSON->false;
   return sprintf '%s=%s', $k, encode_json $obj->{$k} if ref $obj->{$k};
