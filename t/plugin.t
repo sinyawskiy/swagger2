@@ -38,6 +38,9 @@ $t->post_ok('/api/pets/42')->status_is(200)->json_is('/id', 42)->json_is('/name'
 $t->post_ok('/api/pets/foo')->status_is(400)->json_is('/errors/0/path', '/petId')
   ->json_is('/errors/0/message', 'Expected integer - got string.')->json_is('/errors/1', undef);
 
+$t->options_ok('/api/pets/foo')->status_is(200)->header_is(Allow => 'POST')
+  ->json_is('/post/responses/default/description', 'unexpected error');
+
 $t->get_ok('/api')->status_is(200)->json_is('/info/title', 'Swagger Petstore');
 my $api_spec = $t->tx->res->json;
 like $api_spec->{host}, qr{:\d+$}, 'petstore.swagger.wordnik.com is replaced';

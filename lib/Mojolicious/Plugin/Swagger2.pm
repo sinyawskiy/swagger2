@@ -114,12 +114,13 @@ sub register {
   $base_path =~ s!/$!!;
 
   for my $path (sort { length $a <=> length $b } keys %$paths) {
+    my @http_methods = grep { !/^x-/ } keys %{$paths->{$path}};
     my $around_action
       = $paths->{$path}{'x-mojo-around-action'} || $swagger->api_spec->get('/x-mojo-around-action');
     my $controller
       = $paths->{$path}{'x-mojo-controller'} || $swagger->api_spec->get('/x-mojo-controller');
 
-    for my $http_method (grep { !/^x-/ } keys %{$paths->{$path}}) {
+    for my $http_method (@http_methods) {
       my $op_spec    = $paths->{$path}{$http_method};
       my $route_path = $path;
       my %parameters = map { ($_->{name}, $_) } @{$op_spec->{parameters} || []};
@@ -137,6 +138,14 @@ sub register {
       $app->plugins->emit(swagger_route_added =>
           $r->$http_method($route_path => $self->_generate_request_handler($op_spec)));
       warn "[Swagger2] Add route $http_method $base_path$route_path\n" if DEBUG;
+    }
+
+    unless (grep { $_ eq 'options' } @http_methods) {
+      my $route_path = $path;
+      $route_path =~ s/{([^}]+)}/(:$1)/g;
+      $r->options($route_path =>
+          $self->_generate_options_handler($around_action, \@http_methods, $paths->{$path}));
+      warn "[Swagger2] Add route options $base_path$path\n" if DEBUG;
     }
   }
 
@@ -169,6 +178,28 @@ sub _ensure_swagger_response {
       $args->{json} = _error($msg);
     }
   );
+}
+
+sub _generate_options_handler {
+  my ($self, $around_action, $http_methods, $op_spec) = @_;
+  my $allow = join ',', map {uc} @$http_methods;
+
+  my $handler = sub {
+    my $c = shift;
+    $c->res->headers->allow($allow);
+    $c->render(json => $op_spec, status => 200);
+  };
+
+  if ($around_action) {
+    my $next = $handler;
+    $handler = sub {
+      my $c = shift;
+      my $around = $c->can($around_action) || $around_action;
+      $around->($next, $c, $op_spec);
+    };
+  }
+
+  return $handler;
 }
 
 sub _generate_request_handler {
